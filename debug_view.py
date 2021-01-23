@@ -38,9 +38,9 @@ watch_manager.add_watch('.', pyinotify.IN_MODIFY)
 file_watcher = pyinotify.ThreadedNotifier(watch_manager, OnWriteHandler())
 file_watcher.start()
 
-window = pyglet.window.Window()
-
 reload_and_render()
+
+window = pyglet.window.Window(width=img.width, height=img.height)
 
 while True:
     window.switch_to()
