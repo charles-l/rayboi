@@ -40,7 +40,7 @@ file_watcher.start()
 
 reload_and_render()
 
-window = pyglet.window.Window(width=img.width, height=img.height)
+window = pyglet.window.Window(width=m.width, height=m.height)
 
 while True:
     window.switch_to()
