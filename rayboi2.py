@@ -62,24 +62,47 @@ def v3_dots(a, b):
 
 bg_color = (0.2, 0.7, 0.8)
 
+
 def reflect(I, N):
     return I - 2 * N * v3_dots(I, N).reshape((-1, 1))
 
-def cast_rays(origs, dirs, spheres, lights, reflect_steps=1):
+
+def refract(I, N, refractive_index):
+    '''Snell's law'''
+    cosi = -np.clip(v3_dots(I, N), -1, 1).reshape((-1, 1))
+    etai = np.ones_like(cosi)
+    etat = refractive_index.reshape((-1, 1)) * np.ones_like(cosi)
+    n = N * np.ones_like(cosi)
+
+    swap_mask = cosi < 0
+
+    cosi[swap_mask] = -cosi[swap_mask]
+    etai[swap_mask], etat[swap_mask] = etat[swap_mask], etai[swap_mask]
+    n[swap_mask.ravel()] = -n[swap_mask.ravel()]
+
+    eta = etai / etat
+    k = 1 - eta**2 * (1 - cosi**2)
+    return np.where(k < 0, (0, 0, 0), I * eta + n * (eta * cosi - np.sqrt(k)))
+
+
+def cast_rays(origs, dirs, spheres, lights, n_bounces=2):
     sphere_centers = np.array([s.center for s in spheres])
-    #            albedo             color            spec_exponent
-    ivory =      ((0.6, 0.3, 0.1),  (0.4, 0.4, 0.3), 50)
-    red_rubber = ((0.9, 0.1, 0.1),  (0.3, 0.1, 0.1), 10)
-    mirror =     ((0.0, 10.0, 0.8), (1.0, 1.0, 1.0), 1425)
+    #            ior   albedo                 color            spec_exponent
+    ivory =      (1.0, (0.6, 0.3, 0.1, 0.0),  (0.4, 0.4, 0.3), 50)
+    glass =      (1.5, (0.0, 0.5, 0.1, 0.8),  (0.6, 0.7, 0.8), 125)
+    red_rubber = (1.0, (0.9, 0.1, 0.0, 0.0),  (0.3, 0.1, 0.1), 10)
+    mirror =     (1.0, (0.0, 10.0, 0.8, 0.0), (1.0, 1.0, 1.0), 1425)
     sphere_materials = np.array(
         [ivory,
-         mirror,
+         glass,
          red_rubber,
          mirror,
          ],
-        dtype=[('albedo', 'f4', 3),
-               ('diffuse_color', 'f4', 3),
-               ('specular_exponent', 'f4')])
+        dtype=[
+            ('ior', 'f4'),
+            ('albedo', 'f4', 4),
+            ('diffuse_color', 'f4', 3),
+            ('specular_exponent', 'f4')])
 
     dists, sphere_map = scene_intersect(origs, dirs, spheres)
     points = origs + dists.reshape((-1, 1)) * dirs
@@ -114,11 +137,14 @@ def cast_rays(origs, dirs, spheres, lights, reflect_steps=1):
 
 
     reflect_dir = normalize(reflect(dirs, N))
+    refract_dir = refract(dirs, N, sphere_materials['ior'][np.where(sphere_map != -1, sphere_map, 0)])
     reflect_origs = np.where((v3_dots(reflect_dir, N) < 0)[:,np.newaxis], points - N*1e-3, points + N*1e-3)
-    if reflect_steps == 0:
-        reflect_colors = np.ones_like(reflect_origs) * bg_color
+    refract_origs = np.where((v3_dots(refract_dir, N) < 0)[:,np.newaxis], points - N*1e-3, points + N*1e-3)
+    if n_bounces == 0:
+        refract_colors = reflect_colors = np.ones_like(reflect_origs) * bg_color
     else:
-        reflect_colors = cast_rays(reflect_origs, reflect_dir, spheres, lights, reflect_steps-1)
+        reflect_colors = cast_rays(reflect_origs, reflect_dir, spheres, lights, n_bounces-1)
+        refract_colors = cast_rays(refract_origs, refract_dir, spheres, lights, n_bounces-1)
 
     x = np.zeros_like(dirs)
     x[:] = bg_color
@@ -128,7 +154,9 @@ def cast_rays(origs, dirs, spheres, lights, reflect_steps=1):
            * sphere_materials['albedo'][sphere_map[sphere_map != -1]][:,0]).reshape((-1, 1)) +
         (np.array((1, 1, 1)).reshape((3, 1)) * specular_intensity[sphere_map != -1]).T
         * sphere_materials['albedo'][sphere_map[sphere_map != -1]][:,1].reshape((-1, 1)) +
-        reflect_colors[sphere_map != -1] * sphere_materials['albedo'][sphere_map[sphere_map != -1]][:,2].reshape((-1, 1)))
+        reflect_colors[sphere_map != -1] * sphere_materials['albedo'][sphere_map[sphere_map != -1]][:,2].reshape((-1, 1)) +
+        refract_colors[sphere_map != -1] * sphere_materials['albedo'][sphere_map[sphere_map != -1]][:,3].reshape((-1, 1))
+        )
 
     return x
 
