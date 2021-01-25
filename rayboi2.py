@@ -6,8 +6,7 @@ import time
 from typing import Tuple
 
 width, height = 600, 400
-
-v3_dtype = np.dtype(('f4', 3))
+bg_color = (0.2, 0.7, 0.8)
 
 
 @dataclass
@@ -65,9 +64,6 @@ def v3_dots(a, b):
         a.shape[0], b.shape[0])), f"can't broadcast a and b: {a.shape=}, {b.shape=}"
     assert a.shape[1] == b.shape[1] == 3, (a.shape, b.shape)
     return np.sum(a * b, axis=1)
-
-
-bg_color = (0.2, 0.7, 0.8)
 
 
 def reflect(I, N):
@@ -171,7 +167,7 @@ def cast_rays(origs, dirs, spheres, lights, n_bounces=3):
         * (diffuse_intensity * sphere_materials['albedo'][hit_object_map][:, 0, np.newaxis])
 
         # specular
-        + (np.array(((1, 1, 1))) * specular_intensity) *
+        + (np.array([(1, 1, 1)]) * specular_intensity) *
         sphere_materials['albedo'][hit_object_map][:, 1, np.newaxis]
 
         # reflection
@@ -206,7 +202,7 @@ def render():
     dirs = normalize(
         np.dstack((xs, ys, -1 * np.ones((height, width)))).reshape((-1, 3)))
 
-    orig = np.array([(0, 0, 0)], dtype=v3_dtype)
+    orig = np.array([(0, 0, 0)])
     lights = np.array(
         [((-20, 20, 20), 1.5),
          ((30, 50, -25), 1.8),
