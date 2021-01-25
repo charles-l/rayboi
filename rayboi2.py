@@ -92,7 +92,7 @@ def refract(I, N, refractive_index):
     return np.where(k < 0, (0, 0, 0), I * eta + n * (eta * cosi - np.sqrt(k)))
 
 
-def cast_rays(origs, dirs, spheres, lights, n_bounces=2):
+def cast_rays(origs, dirs, spheres, lights, n_bounces=3):
     sphere_centers = np.array([s.center for s in spheres])
     #    ior   albedo                 color            spec_exponent
     sphere_materials = np.array(
@@ -107,13 +107,18 @@ def cast_rays(origs, dirs, spheres, lights, n_bounces=2):
             ('diffuse_color', 'f4', 3),
             ('specular_exponent', 'f4')])
 
-    dists, sphere_map = scene_intersect(origs, dirs, spheres)
-    points = origs + dists.reshape((-1, 1)) * dirs
+    dists, object_map = scene_intersect(origs, dirs, spheres)
 
-    N = normalize(points - sphere_centers[sphere_map])
+    # points are filtered down only to rays that hit anything
+    points = (origs + dists.reshape((-1, 1)) * dirs)[object_map != -1]
+    hit_object_map = object_map[object_map != -1]
+    hit_origs = origs[object_map != -1] if len(origs) > 1 else origs
+    hit_dirs = dirs[object_map != -1]
 
-    diffuse_intensity = np.zeros((width*height,), dtype=np.float64)
-    specular_intensity = np.zeros((width*height,), dtype=np.float64)
+    N = normalize(points - sphere_centers[hit_object_map])
+
+    diffuse_intensity = np.zeros_like(points, dtype=np.float64)
+    specular_intensity = np.zeros_like(points, dtype=np.float64)
 
     for i in range(len(lights)):
         light_dir = normalize(lights['position'][i] - points).reshape((-1, 3))
@@ -125,25 +130,25 @@ def cast_rays(origs, dirs, spheres, lights, n_bounces=2):
 
         shadow_dists, shadow_map = scene_intersect(
             shadow_orig, light_dir, spheres)
-        shadow_points = origs + shadow_dists.reshape((-1, 1)) * light_dir
+        shadow_points = hit_origs + shadow_dists.reshape((-1, 1)) * light_dir
         shadow_mask = (
             (shadow_map != -1) &
             (np.linalg.norm(shadow_points - shadow_orig, axis=1) < light_distance))
 
         d = v3_dots(light_dir, N)
-        diffuse_intensity += lights['intensity'][i] * \
-            np.where((d < 0) | shadow_mask, 0, d)
+        diffuse_intensity += np.where((d < 0) | shadow_mask,
+                                      0, lights['intensity'][i] * d)[:, np.newaxis]
 
-        spec_exponents = sphere_materials['specular_exponent'][np.where(
-            sphere_map != -1, sphere_map, 0)]
+        spec_exponents = sphere_materials['specular_exponent'][hit_object_map]
+
         specular_intensity += (
-            np.where(shadow_map == -1, 1, 0) *
+            (shadow_map == -1) *
             lights['intensity'][i] *
-            np.clip(v3_dots(reflect(light_dir, N), dirs), 0, None) ** spec_exponents)
+            np.clip(v3_dots(reflect(light_dir, N), hit_dirs), 0, None) ** spec_exponents)[:, np.newaxis]
 
-    reflect_dir = normalize(reflect(dirs, N))
+    reflect_dir = normalize(reflect(hit_dirs, N))
     refract_dir = refract(
-        dirs, N, sphere_materials['ior'][np.where(sphere_map != -1, sphere_map, 0)])
+        hit_dirs, N, sphere_materials['ior'][hit_object_map])
     reflect_origs = np.where((v3_dots(reflect_dir, N) < 0)[
                              :, np.newaxis], points - N*1e-3, points + N*1e-3)
     refract_origs = np.where((v3_dots(refract_dir, N) < 0)[
@@ -157,23 +162,28 @@ def cast_rays(origs, dirs, spheres, lights, n_bounces=2):
         refract_colors = cast_rays(
             refract_origs, refract_dir, spheres, lights, n_bounces-1)
 
-    x = np.zeros_like(dirs)
-    x[:] = bg_color
-    x[sphere_map != -1] = (
-        sphere_materials['diffuse_color'][sphere_map[sphere_map != -1]
-                                          ].reshape((-1, 3))
-        * (diffuse_intensity[sphere_map != -1]
-           * sphere_materials['albedo'][sphere_map[sphere_map != -1]][:, 0]).reshape((-1, 1)) +
-        (np.array((1, 1, 1)).reshape((3, 1)) *
-         specular_intensity[sphere_map != -1]).T
-        * sphere_materials['albedo'][sphere_map[sphere_map != -1]][:, 1].reshape((-1, 1)) +
-        reflect_colors[sphere_map != -1] * sphere_materials['albedo'][sphere_map[sphere_map != -1]][:, 2].reshape((-1, 1)) +
-        refract_colors[sphere_map != -1] *
-        sphere_materials['albedo'][sphere_map[sphere_map != -1]
-                                   ][:, 3].reshape((-1, 1))
+    r = np.zeros_like(dirs)
+    r[:] = bg_color
+
+    r[object_map != -1] = (
+        # diffuse
+        sphere_materials['diffuse_color'][hit_object_map]
+        * (diffuse_intensity * sphere_materials['albedo'][hit_object_map][:, 0, np.newaxis])
+
+        # specular
+        + (np.array(((1, 1, 1))) * specular_intensity) *
+        sphere_materials['albedo'][hit_object_map][:, 1, np.newaxis]
+
+        # reflection
+        + reflect_colors *
+        sphere_materials['albedo'][hit_object_map][:, 2, np.newaxis]
+
+        # refraction
+        + refract_colors *
+        sphere_materials['albedo'][hit_object_map][:, 3, np.newaxis]
     )
 
-    return x
+    return r
 
 
 def render():

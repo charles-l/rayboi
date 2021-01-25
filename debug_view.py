@@ -26,6 +26,7 @@ def reload_and_render():
         img = pyglet.image.ImageData(fb.shape[1], fb.shape[0], 'RGB', (fb * 255).astype(np.uint8).tobytes())
     except:
         traceback.print_exc()
+        #import pdb; pdb.post_mortem()
 
 class OnWriteHandler(pyinotify.ProcessEvent):
     def process_IN_MODIFY(self, event):
