@@ -2,10 +2,13 @@ import numpy as np
 import numpy.ma as ma
 from PIL import Image
 from dataclasses import dataclass
+from skimage.transform import resize
 import time
 from typing import Tuple
 
+nsamples = 2
 width, height = 600, 400
+samplewidth, sampleheight = width * nsamples, height * nsamples
 bg_color = (0.2, 0.7, 0.8)
 
 
@@ -185,7 +188,7 @@ def cast_rays(origs, dirs, spheres, lights, n_bounces=3):
 def render():
     fov = np.pi/3
 
-    framebuffer = np.zeros((height * width, 3))
+    framebuffer = np.zeros((sampleheight * samplewidth, 3))
 
     spheres = [
         Sphere(np.array((-3, 0, -16)), 2),
@@ -196,11 +199,11 @@ def render():
 
     start = time.time()
 
-    X, Y = np.meshgrid(np.arange(width), np.arange(height))
-    xs = (2*(X+0.5) / width - 1) * np.tan(fov/2) * width/height
-    ys = (2*(Y+0.5) / height - 1) * np.tan(fov/2)
+    X, Y = np.meshgrid(np.arange(samplewidth), np.arange(sampleheight))
+    xs = (2*(X+0.5) / samplewidth - 1) * np.tan(fov/2) * samplewidth/sampleheight
+    ys = (2*(Y+0.5) / sampleheight - 1) * np.tan(fov/2)
     dirs = normalize(
-        np.dstack((xs, ys, -1 * np.ones((height, width)))).reshape((-1, 3)))
+        np.dstack((xs, ys, -1 * np.ones((sampleheight, samplewidth)))).reshape((-1, 3)))
 
     orig = np.array([(0, 0, 0)])
     lights = np.array(
@@ -221,4 +224,4 @@ def render():
                 1] /= max_channel[max_channel > 1].reshape((-1, 1))
     framebuffer[framebuffer < 0] = 0
     framebuffer[framebuffer > 1] = 1
-    return framebuffer.reshape((height, width, 3))
+    return resize(framebuffer.reshape((sampleheight, samplewidth, 3)), (height, width))
