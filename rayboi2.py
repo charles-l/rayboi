@@ -36,24 +36,48 @@ class Sphere:
         return ma.array(t0)
 
 
+@dataclass
+class Plane:
+    center: np.ndarray
+    normal: np.ndarray
+    length: float
+
+    # FIXME: use self.center, self.normal, and self.length
+    def ray_intersect(self, orig, direction) -> ma.array:
+        direction[:, 1] > 1e-3
+        d = -(orig[:,1]+4)/direction[:,1]
+        pt = orig + direction*d[:,np.newaxis]
+        return ma.array(d, mask=~((d > 0) & (ma.abs(pt[:,0]) < 10) & (pt[:,2] < -10) & (pt[:,2] > -30)))
+
+# FIXME: disgusting globals. Need a proper object manager/kdtree impl.
+planes = [Plane(np.array([(0, 4, 16)]), np.array([(0, 0, 1)]), 1)]
+
+
 def normalize(v):
     return v / np.linalg.norm(v, axis=1)[:, np.newaxis]
 
 
 def scene_intersect(orig, dirs, spheres):
-    sphere_dist = np.inf * np.ones((dirs.shape[0]))
-    sphere_mask = -1 * np.ones_like(sphere_dist)
+    obj_dists = np.inf * np.ones((dirs.shape[0]))
+    id_map = -1 * np.ones_like(obj_dists)
 
     for i, sphere in enumerate(spheres):
         dists = sphere.ray_intersect(orig, dirs)
-        sphere_mask[~dists.mask & (dists < sphere_dist)] = i
-        sphere_dist[~dists.mask & (dists < sphere_dist)
-                    ] = dists[~dists.mask & (dists < sphere_dist)]
+        id_map[~dists.mask & (dists < obj_dists)] = i
+        obj_dists[~dists.mask & (dists < obj_dists)
+                    ] = dists[~dists.mask & (dists < obj_dists)]
+
+    # FIXME: needs its own id (otherwise it'll overlap with sphere ids)
+    for i, plane in enumerate(planes):
+        dists = plane.ray_intersect(orig, dirs)
+        id_map[~dists.mask & (dists < obj_dists)] = i
+        obj_dists[~dists.mask & (dists < obj_dists)
+                    ] = dists[~dists.mask & (dists < obj_dists)]
 
     # TODO: determine if I need this
-    sphere_mask[sphere_dist > 1000] = -1
+    id_map[obj_dists > 1000] = -1
 
-    return sphere_dist, sphere_mask.astype(np.int8)
+    return obj_dists, id_map.astype(np.int8)
 
 
 def v3_dots(a, b):
@@ -61,7 +85,7 @@ def v3_dots(a, b):
     perform a dot product across the vector3s in a and b.
     e.g. v3_dots([v1, v2, v3], [v4, v5, v6]) => [v1 @ v4, v2 @ v5, v3 @ v6]
     '''
-    assert len(a.shape) == len(b.shape) == 2
+    assert len(a.shape) == len(b.shape) == 2, (a.shape, b.shape)
     assert a.shape[0] == b.shape[0] or (1 in (
         a.shape[0], b.shape[0])), f"can't broadcast a and b: {a.shape=}, {b.shape=}"
     assert a.shape[1] == b.shape[1] == 3, (a.shape, b.shape)
@@ -113,6 +137,7 @@ def cast_rays(origs, dirs, spheres, lights, n_bounces=3):
     hit_origs = origs[object_map != -1] if len(origs) > 1 else origs
     hit_dirs = dirs[object_map != -1]
 
+    # FIXME: normal computation should happen on object by object basis
     N = normalize(points - sphere_centers[hit_object_map])
 
     diffuse_intensity = np.zeros_like(points, dtype=np.float64)
