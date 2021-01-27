@@ -8,8 +8,11 @@ from typing import Tuple
 
 nsamples = 2
 width, height = 600, 400
-samplewidth, sampleheight = width * nsamples, height * nsamples
+# virtual width/height for FSAA
+vwidth, vheight = width * nsamples, height * nsamples
 bg_color = (0.2, 0.7, 0.8)
+
+# TODO: np.seterr(all='raise') and work out more numerical issues.
 
 
 @dataclass
@@ -17,24 +20,20 @@ class Sphere:
     center: np.ndarray
     radius: float
 
-    def ray_intersect(self, orig, direction) -> Tuple[np.ndarray, np.ndarray]:
+    def ray_intersect(self, orig, direction) -> ma.array:
         '''
-        :returns: boolean array of points hit, array of distances (floats)
+        :returns: array of distances (floats), with the non-hits masked out
         '''
-        # TODO: determine if it's more efficient to just return a list of
-        # indices rather than generating a bunch of crap with the mask data.
         L = self.center - orig
-        tca = v3_dots(L.reshape((-1, 3)), direction.reshape((-1, 3)))
+        tca = v3_dots(L, direction)
         d2 = v3_dots(L, L) - tca**2
         # early check would normally check d2 > self.radius**2
-        # FIXME: I don't think nans should be floating around here...
-        thc = np.sqrt(self.radius**2 - d2)
+        thc = ma.sqrt(ma.array(self.radius**2 - d2, mask=d2 > self.radius**2))
         t0 = tca - thc
         t1 = tca + thc
         t0[t0 < 0] = t1[t0 < 0]
-        mask = np.where(d2 > self.radius**2, False,
-                        np.where(t0 < 0, False, True)).ravel()
-        return ma.array(t0, mask=mask)
+        t0.mask |= t0 < 0
+        return ma.array(t0)
 
 
 def normalize(v):
@@ -47,9 +46,9 @@ def scene_intersect(orig, dirs, spheres):
 
     for i, sphere in enumerate(spheres):
         dists = sphere.ray_intersect(orig, dirs)
-        sphere_mask[dists.mask & (dists < sphere_dist)] = i
-        sphere_dist[dists.mask & (dists < sphere_dist)
-                    ] = dists[dists.mask & (dists < sphere_dist)]
+        sphere_mask[~dists.mask & (dists < sphere_dist)] = i
+        sphere_dist[~dists.mask & (dists < sphere_dist)
+                    ] = dists[~dists.mask & (dists < sphere_dist)]
 
     # TODO: determine if I need this
     sphere_mask[sphere_dist > 1000] = -1
@@ -146,8 +145,7 @@ def cast_rays(origs, dirs, spheres, lights, n_bounces=3):
             np.clip(v3_dots(reflect(light_dir, N), hit_dirs), 0, None) ** spec_exponents)[:, np.newaxis]
 
     reflect_dir = normalize(reflect(hit_dirs, N))
-    refract_dir = refract(
-        hit_dirs, N, sphere_materials['ior'][hit_object_map])
+    refract_dir = refract(hit_dirs, N, sphere_materials['ior'][hit_object_map])
     reflect_origs = np.where((v3_dots(reflect_dir, N) < 0)[
                              :, np.newaxis], points - N*1e-3, points + N*1e-3)
     refract_origs = np.where((v3_dots(refract_dir, N) < 0)[
@@ -188,7 +186,7 @@ def cast_rays(origs, dirs, spheres, lights, n_bounces=3):
 def render():
     fov = np.pi/3
 
-    framebuffer = np.zeros((sampleheight * samplewidth, 3))
+    framebuffer = np.zeros((vheight * vwidth, 3))
 
     spheres = [
         Sphere(np.array((-3, 0, -16)), 2),
@@ -199,11 +197,11 @@ def render():
 
     start = time.time()
 
-    X, Y = np.meshgrid(np.arange(samplewidth), np.arange(sampleheight))
-    xs = (2*(X+0.5) / samplewidth - 1) * np.tan(fov/2) * samplewidth/sampleheight
-    ys = (2*(Y+0.5) / sampleheight - 1) * np.tan(fov/2)
+    X, Y = np.meshgrid(np.arange(vwidth), np.arange(vheight))
+    xs = (2*(X+0.5) / vwidth - 1) * np.tan(fov/2) * vwidth/vheight
+    ys = (2*(Y+0.5) / vheight - 1) * np.tan(fov/2)
     dirs = normalize(
-        np.dstack((xs, ys, -1 * np.ones((sampleheight, samplewidth)))).reshape((-1, 3)))
+        np.dstack((xs, ys, -1 * np.ones((vheight, vwidth)))).reshape((-1, 3)))
 
     orig = np.array([(0, 0, 0)])
     lights = np.array(
@@ -224,4 +222,4 @@ def render():
                 1] /= max_channel[max_channel > 1].reshape((-1, 1))
     framebuffer[framebuffer < 0] = 0
     framebuffer[framebuffer > 1] = 1
-    return resize(framebuffer.reshape((sampleheight, samplewidth, 3)), (height, width))
+    return resize(framebuffer.reshape((vheight, vwidth, 3)), (height, width))
