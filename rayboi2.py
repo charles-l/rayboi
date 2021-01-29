@@ -57,27 +57,34 @@ def normalize(v):
     return v / np.linalg.norm(v, axis=1)[:, np.newaxis]
 
 
-def scene_intersect(orig, dirs, spheres):
+def scene_intersect(orig, dirs, spheres) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     obj_dists = np.inf * np.ones((dirs.shape[0]))
     id_map = -1 * np.ones_like(obj_dists)
+    N = np.zeros_like(dirs)
 
     for i, sphere in enumerate(spheres):
         dists = sphere.ray_intersect(orig, dirs)
-        id_map[~dists.mask & (dists < obj_dists)] = i
-        obj_dists[~dists.mask & (dists < obj_dists)
-                    ] = dists[~dists.mask & (dists < obj_dists)]
+        visible_pixels = ~dists.mask & (dists < obj_dists)
+        id_map[visible_pixels] = i
+        obj_dists[visible_pixels] = dists[visible_pixels]
+        # TODO: refactor so we don't compute points in this function as well as
+        # in the outer cast_ray function
+        points = (orig + dists.reshape((-1, 1)) * dirs)[visible_pixels]
+        N[visible_pixels] = normalize(points - sphere.center)
 
     # FIXME: needs its own id (otherwise it'll overlap with sphere ids)
     for i, plane in enumerate(planes):
+        # yuck -- why is this duplicated
         dists = plane.ray_intersect(orig, dirs)
-        id_map[~dists.mask & (dists < obj_dists)] = i
-        obj_dists[~dists.mask & (dists < obj_dists)
-                    ] = dists[~dists.mask & (dists < obj_dists)]
+        visible_pixels = ~dists.mask & (dists < obj_dists)
+        id_map[visible_pixels] = i
+        obj_dists[visible_pixels] = dists[visible_pixels]
+        N[visible_pixels] = (0, 1, 0)
 
     # TODO: determine if I need this
     id_map[obj_dists > 1000] = -1
 
-    return obj_dists, id_map.astype(np.int8)
+    return obj_dists, N[id_map != -1], id_map.astype(np.int8)
 
 
 def v3_dots(a, b):
@@ -115,7 +122,6 @@ def refract(I, N, refractive_index):
 
 
 def cast_rays(origs, dirs, spheres, lights, n_bounces=3):
-    sphere_centers = np.array([s.center for s in spheres])
     #    ior   albedo                 color            spec_exponent
     sphere_materials = np.array(
         [(1.0, (0.6, 0.3, 0.1, 0.0),  (0.4, 0.4, 0.3), 50),
@@ -129,16 +135,13 @@ def cast_rays(origs, dirs, spheres, lights, n_bounces=3):
             ('diffuse_color', 'f4', 3),
             ('specular_exponent', 'f4')])
 
-    dists, object_map = scene_intersect(origs, dirs, spheres)
+    dists, N, object_map = scene_intersect(origs, dirs, spheres)
 
     # points are filtered down only to rays that hit anything
     points = (origs + dists.reshape((-1, 1)) * dirs)[object_map != -1]
     hit_object_map = object_map[object_map != -1]
     hit_origs = origs[object_map != -1] if len(origs) > 1 else origs
     hit_dirs = dirs[object_map != -1]
-
-    # FIXME: normal computation should happen on object by object basis
-    N = normalize(points - sphere_centers[hit_object_map])
 
     diffuse_intensity = np.zeros_like(points, dtype=np.float64)
     specular_intensity = np.zeros_like(points, dtype=np.float64)
@@ -151,7 +154,7 @@ def cast_rays(origs, dirs, spheres, lights, n_bounces=3):
                                points - N * 1e-3,
                                points + N * 1e-3)
 
-        shadow_dists, shadow_map = scene_intersect(
+        shadow_dists, _, shadow_map = scene_intersect(
             shadow_orig, light_dir, spheres)
         shadow_points = hit_origs + shadow_dists.reshape((-1, 1)) * light_dir
         shadow_mask = (
