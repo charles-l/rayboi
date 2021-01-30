@@ -1,0 +1,151 @@
+<html>
+    <body>
+        <body>
+<script type=module>
+// help I'm stupid and can't figure out how to render a parallelogram -_-
+
+// use WASD to tweak the ray direction (and associated hit point)
+// blue arrow is the noraml
+// green arrows mean the hit point is on the inside of that bound
+// cube is camera
+// black arrow is ray
+
+import * as THREE from 'https://threejsfundamentals.org/threejs/resources/threejs/r122/build/three.module.js';
+import {OrbitControls} from 'https://threejsfundamentals.org/threejs/resources/threejs/r122/examples/jsm/controls/OrbitControls.js';
+
+let camera, controls, scene, renderer;
+
+init();
+//render(); // remove when using next line for animation loop
+animate();
+
+function updateSceneWithDir(scene, ray_dir) {
+    while(scene.children !== undefined && scene.children.length > 0){
+        scene.remove(scene.children[0]);
+    }
+
+    const o = new THREE.Vector3(-3, 4, -10);
+    const a = new THREE.Vector3(0.1, 1, 0).normalize();
+    const b = new THREE.Vector3(1, 0, 0).normalize();
+    const normal = a.clone().cross(b);
+    const camera_o = new THREE.Vector3(0, 0, 0);
+    const ndotray = normal.clone().dot(ray_dir);
+    const d = normal.clone().dot(camera_o);
+    const t = (normal.clone().dot(o) + d) / ndotray;
+    console.log({ndotray, d, t});
+
+    const p = camera_o.clone().add(ray_dir.clone().multiplyScalar(t));
+
+    const corner1off = p.clone().sub(o);
+
+    let d0 = normal.clone().dot(a.clone().cross(corner1off));
+    let d1 = normal.clone().dot(corner1off.clone().cross(b));
+    let d2 = normal.clone().dot(corner1off.clone().sub(b).cross(a));
+    let d3 = normal.clone().dot(b.clone().cross(corner1off.clone().sub(a)));
+
+    console.log({d0, d1, d2, d3});
+
+    scene.add(new THREE.ArrowHelper(normal.clone().normalize(), o, 1, 0x0000FF));
+    scene.add(new THREE.ArrowHelper(ray_dir.clone().normalize(), camera_o, 10, 0x000000));
+    scene.add(new THREE.ArrowHelper(corner1off.clone().normalize(), o, corner1off.length(), 0xFFEEAA));
+
+    scene.add(new THREE.ArrowHelper(a.clone().normalize(), o, a.length(), d0 < 0 ? 0xFF0000 : 0x00FF00));
+    scene.add(new THREE.ArrowHelper(b.clone().normalize(), o, b.length(), d1 < 0 ? 0xFF0000 : 0x00FF00));
+    scene.add(new THREE.ArrowHelper(a.clone().normalize(), o.clone().add(b), a.length(), d2 < 0 ? 0xFF0000 : 0x00FF00));
+    scene.add(new THREE.ArrowHelper(b.clone().normalize(), o.clone().add(a), b.length(), d3 < 0 ? 0xFF0000 : 0x00FF00));
+
+    // camera
+    const geometry = new THREE.BoxGeometry(2, 2, 2);
+    const m = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color: 0x333333}))
+    m.position.set(camera_o.x, camera_o.y, camera_o.z);
+    scene.add(m);
+
+    // hit point
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), new THREE.MeshBasicMaterial({color: 0x330000}))
+    s.position.set(p.x, p.y, p.z);
+    scene.add(s);
+}
+
+var ray_dir;
+function init() {
+
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color( 0xcccccc );
+
+    renderer = new THREE.WebGLRenderer( { antialias: true } );
+    renderer.setPixelRatio( window.devicePixelRatio );
+    renderer.setSize( window.innerWidth, window.innerHeight );
+    document.body.appendChild( renderer.domElement );
+
+    camera = new THREE.PerspectiveCamera( 60, window.innerWidth / window.innerHeight, 1, 1000 );
+    camera.position.set( 2, 1, 0 );
+
+    // controls
+
+    controls = new OrbitControls( camera, renderer.domElement );
+
+    controls.enableDamping = true; // an animation loop is required when either damping or auto-rotation are enabled
+    controls.dampingFactor = 0.05;
+
+    controls.screenSpacePanning = false;
+
+    controls.minDistance = 10;
+    controls.maxDistance = 50;
+
+    controls.maxPolarAngle = Math.PI / 2;
+
+    ray_dir = new THREE.Vector3(0, 0.3, -0.6);
+    updateSceneWithDir(scene, ray_dir);
+
+    window.addEventListener( 'resize', onWindowResize );
+
+    function onDocumentKeyDown(event) {
+        let keyCode = event.which;
+        if(event.key == "a") {
+            ray_dir.x -= 0.01;
+            updateSceneWithDir(scene, ray_dir);
+        }
+        if(event.key == "d") {
+            ray_dir.x += 0.01;
+            updateSceneWithDir(scene, ray_dir);
+        }
+        if(event.key == "w") {
+            ray_dir.y += 0.01;
+            updateSceneWithDir(scene, ray_dir);
+        }
+        if(event.key == "s") {
+            ray_dir.y -= 0.01;
+            updateSceneWithDir(scene, ray_dir);
+        }
+    }
+    document.addEventListener('keydown', onDocumentKeyDown, false);
+}
+
+function onWindowResize() {
+
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+
+    renderer.setSize( window.innerWidth, window.innerHeight );
+
+}
+
+function animate() {
+
+    requestAnimationFrame( animate );
+
+    controls.update(); // only required if controls.enableDamping = true, or if controls.autoRotate = true
+
+    render();
+
+}
+
+function render() {
+
+    renderer.render( scene, camera );
+
+}
+</script>
+        </body>
+    </body>
+</html>
