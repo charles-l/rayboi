@@ -14,6 +14,7 @@ bg_color = (0.2, 0.7, 0.8)
 
 # TODO: np.seterr(all='raise') and work out more numerical issues.
 
+# FINISH all TODO/FIXME LINES
 
 @dataclass
 class Sphere:
@@ -53,6 +54,10 @@ class Plane:
 
         pt = orig + t.reshape(-1, 1) * direction
 
+        # TODO: try an alternative to find points in a parallelogram (or plane)
+        # if that's easier. Maybe project onto a plane then use a parallelogram
+        # as a basis in 2d?
+        # https://stackoverflow.com/questions/59128744/raytracing-ray-vs-parallelogram
         # edge 0
         t.mask |= v3_dots(normal, np.cross(self.a, pt - self.corner)) < 0
         # edge 1
