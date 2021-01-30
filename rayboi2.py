@@ -38,26 +38,49 @@ class Sphere:
 
 @dataclass
 class Plane:
-    center: np.ndarray
-    normal: np.ndarray
-    length: float
+    corner: np.ndarray
+    a: np.ndarray
+    b: np.ndarray
 
-    # FIXME: use self.center, self.normal, and self.length
     def ray_intersect(self, orig, direction) -> ma.array:
-        direction[:, 1] > 1e-3
-        d = -(orig[:,1]+4)/direction[:,1]
-        pt = orig + direction*d[:,np.newaxis]
-        return ma.array(d, mask=~((d > 0) & (ma.abs(pt[:,0]) < 10) & (pt[:,2] < -10) & (pt[:,2] > -30)))
+        normal = np.cross(self.a, self.b)
+
+        ndotray = ma.array(v3_dots(normal, direction))
+        ndotray.mask = ma.abs(ndotray) < 1e-3
+        d = v3_dots(normal, orig)
+        t = (v3_dots(normal, self.corner) + d) / ndotray
+        t.mask |= t < 0
+
+        pt = orig + t.reshape(-1, 1) * direction
+
+        # edge 0
+        t.mask |= v3_dots(normal, np.cross(self.a, pt - self.corner)) < 0
+        # edge 1
+        t.mask |= v3_dots(normal, np.cross(pt - self.corner, self.b)) < 0
+        # edge 2
+        t.mask |= v3_dots(normal, np.cross(pt - self.corner - self.b, self.a)) < 0
+        # edge 3
+        t.mask |= v3_dots(normal, np.cross(self.b, pt - self.corner - self.a)) < 0
+
+        return t
 
 # FIXME: disgusting globals. Need a proper object manager/kdtree impl.
-planes = [Plane(np.array([(0, 4, 16)]), np.array([(0, 0, 1)]), 1)]
+planes = [Plane(np.array([(-5, -4, -20)]), np.array([(0, 0, 20)]), np.array([(20, 0, 0)])),
+          Plane(np.array([(0, 3.2, -9)]), np.array([(0, 1, 0)]), np.array([(1, 0, 0)]))]
+
+spheres = [
+    Sphere(np.array((-3, 0, -16)), 2),
+    Sphere(np.array((1, -1.5, -12)), 2),
+    Sphere(np.array((1.5, -0.5, -18)), 3),
+    Sphere(np.array((7, 5, -18)), 4)
+]
 
 
 def normalize(v):
     return v / np.linalg.norm(v, axis=1)[:, np.newaxis]
 
 
-def scene_intersect(orig, dirs, spheres) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def scene_intersect(orig, dirs) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     obj_dists = np.inf * np.ones((dirs.shape[0]))
     id_map = -1 * np.ones_like(obj_dists)
     N = np.zeros_like(dirs)
@@ -72,7 +95,7 @@ def scene_intersect(orig, dirs, spheres) -> Tuple[np.ndarray, np.ndarray, np.nda
         points = (orig + dists.reshape((-1, 1)) * dirs)[visible_pixels]
         N[visible_pixels] = normalize(points - sphere.center)
 
-    # FIXME: needs its own id (otherwise it'll overlap with sphere ids)
+    # FIXME: needs its own id (otherwise it'll overlap with sphere ids when assigning materials)
     for i, plane in enumerate(planes):
         # yuck -- why is this duplicated
         dists = plane.ray_intersect(orig, dirs)
@@ -121,7 +144,7 @@ def refract(I, N, refractive_index):
     return np.where(k < 0, (0, 0, 0), I * eta + n * (eta * cosi - np.sqrt(k)))
 
 
-def cast_rays(origs, dirs, spheres, lights, n_bounces=3):
+def cast_rays(origs, dirs, lights, n_bounces=3):
     #    ior   albedo                 color            spec_exponent
     sphere_materials = np.array(
         [(1.0, (0.6, 0.3, 0.1, 0.0),  (0.4, 0.4, 0.3), 50),
@@ -135,7 +158,7 @@ def cast_rays(origs, dirs, spheres, lights, n_bounces=3):
             ('diffuse_color', 'f4', 3),
             ('specular_exponent', 'f4')])
 
-    dists, N, object_map = scene_intersect(origs, dirs, spheres)
+    dists, N, object_map = scene_intersect(origs, dirs)
 
     # points are filtered down only to rays that hit anything
     points = (origs + dists.reshape((-1, 1)) * dirs)[object_map != -1]
@@ -155,7 +178,7 @@ def cast_rays(origs, dirs, spheres, lights, n_bounces=3):
                                points + N * 1e-3)
 
         shadow_dists, _, shadow_map = scene_intersect(
-            shadow_orig, light_dir, spheres)
+            shadow_orig, light_dir)
         shadow_points = hit_origs + shadow_dists.reshape((-1, 1)) * light_dir
         shadow_mask = (
             (shadow_map != -1) &
@@ -183,9 +206,9 @@ def cast_rays(origs, dirs, spheres, lights, n_bounces=3):
             reflect_origs) * bg_color
     else:
         reflect_colors = cast_rays(
-            reflect_origs, reflect_dir, spheres, lights, n_bounces-1)
+            reflect_origs, reflect_dir, lights, n_bounces-1)
         refract_colors = cast_rays(
-            refract_origs, refract_dir, spheres, lights, n_bounces-1)
+            refract_origs, refract_dir, lights, n_bounces-1)
 
     r = np.zeros_like(dirs)
     r[:] = bg_color
@@ -216,13 +239,6 @@ def render():
 
     framebuffer = np.zeros((vheight * vwidth, 3))
 
-    spheres = [
-        Sphere(np.array((-3, 0, -16)), 2),
-        Sphere(np.array((1, -1.5, -12)), 2),
-        Sphere(np.array((1.5, -0.5, -18)), 3),
-        Sphere(np.array((7, 5, -18)), 4)
-    ]
-
     start = time.time()
 
     X, Y = np.meshgrid(np.arange(vwidth), np.arange(vheight))
@@ -239,7 +255,7 @@ def render():
         dtype=[('position', 'f4', 3), ('intensity', 'f4')])
 
     # clear to bg color
-    framebuffer[:, :] = cast_rays(orig, dirs, spheres, lights)
+    framebuffer[:, :] = cast_rays(orig, dirs, lights)
 
     end = time.time()
     print(f'took {end-start:.2f}s')
