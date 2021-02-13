@@ -6,7 +6,7 @@ import time
 import traceback
 
 img = None
-m = importlib.import_module('rayboi2')
+m = importlib.import_module('rayboi')
 
 def reload_and_render():
     global img

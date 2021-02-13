@@ -1,5 +1,5 @@
-import rayboi2
+import rayboi
 from PIL import Image
 
-fb = rayboi2.render()
+fb = rayboi.render()
 Image.fromarray((fb[::-1,...] * 255).astype('uint8')).save('render.png')
