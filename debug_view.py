@@ -88,7 +88,10 @@ while True:
 
     if rayboi is not None:
         print('start render...')
-        newfb = rayboi.main(i, icosphere).get().clip(0, 1)
+        start = time.perf_counter_ns()
+        renderfb = rayboi.main(i, icosphere)
+        render_time = time.perf_counter_ns() - start
+        newfb = renderfb.get().clip(0, 1)
         if fb is None:
             fb = newfb
         else:
@@ -102,11 +105,11 @@ while True:
     log.view_y = -log.content_height
     log.draw()
     label.draw()
-    time.sleep(0.05)
+    pyglet.clock.get_default().sleep(500)
 
     window.flip()
     i += 1
-    label.text = f'Iteration {i}'
+    label.text = f'Iteration {i}. Time for frame: {render_time/1000/1000:.2f} ms'
 
 
 window.close()
