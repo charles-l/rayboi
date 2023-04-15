@@ -20,7 +20,8 @@ def f32toarr(f: f32) = [f, f, f]
 def vec a b c = {x=a, y=b, z=c}
 def (a: Vec) <+> (b: Vec): Vec = vec (a.x + b.x) (a.y + b.y) (a.z + b.z)
 def (a: Vec) <-> (b: Vec): Vec = vec (a.x - b.x) (a.y - b.y) (a.z - b.z)
-def (s: f32) <*> (b: Vec): Vec = vec (s * b.x) (s * b.y) (s * b.z)
+def (a: Vec) <*> (b: Vec): Vec = vec (a.x * b.x) (a.y * b.y) (a.z * b.z)
+def (s: f32)  *> (b: Vec): Vec = vec (s * b.x) (s * b.y) (s * b.z)
 def dot (a: Vec) (b: Vec): f32 = (a.x*b.x) + (a.y*b.y) + (a.z*b.z)
 def cross (a: Vec) (b: Vec): Vec =
     {
@@ -28,8 +29,8 @@ def cross (a: Vec) (b: Vec): Vec =
         y = a.z * b.x - a.x * b.z,
         z = a.x * b.y - a.y * b.x
     }
-def normalize(a: Vec): Vec = (1 / (dot a a |> f32.sqrt)) <*> a
-def vecavg vs = (1/(length vs |> f32.i64)) <*> (reduce (<+>) (vec 0 0 0) vs)
+def normalize(a: Vec): Vec = (1 / (dot a a |> f32.sqrt)) *> a
+def vecavg vs = (1/(length vs |> f32.i64)) *> (reduce (<+>) (vec 0 0 0) vs)
 def epsilon: f32 = 0.00001
 
 def ray_triangle (ray: Ray) (t: Triangle) =
@@ -60,14 +61,14 @@ def rand_sphere_point rng =
 
 def imin [n] 't (f: t -> f32) (arr: [n]t): i64 =
     let (i, _) = reduce (\(ai, ax) (i, x) -> (if x < ax then (i, x) else (ai, ax)))
-        (-1, f32.inf) (zip (iota n) (map f arr)) in
+        (0, f32.inf) (zip (iota n) (map f arr)) in
     i
 
 def check_sphere (ray: Ray) ({pos, radius, material}: Sphere): HitInfo =
     let ray_origin = ray.origin <-> pos in
     let s = f32.sqrt(((dot ray_origin ray.dir) ** 2) - ((dot ray_origin ray_origin) - radius**2)) in
-    let d1 = (dot (-1 <*> ray_origin) ray.dir) + s in
-    let d2 = (dot (-1 <*> ray_origin) ray.dir) - s in
+    let d1 = (dot (-1 *> ray_origin) ray.dir) + s in
+    let d2 = (dot (-1 *> ray_origin) ray.dir) - s in
     let dist = f32.min d1 d2 in
     if f32.isnan dist || dist < 0 then
     {
@@ -77,7 +78,7 @@ def check_sphere (ray: Ray) ({pos, radius, material}: Sphere): HitInfo =
         material = material
     }
     else
-    let hit_point = ray.origin <+> (dist <*> ray.dir) in
+    let hit_point = ray.origin <+> (dist *> ray.dir) in
     {
         dist = dist,
         point = hit_point,
@@ -87,30 +88,19 @@ def check_sphere (ray: Ray) ({pos, radius, material}: Sphere): HitInfo =
 
 def trace_ray rng (init_ray: Ray) (spheres: []Sphere) =
     let (_, _, final_light, _) = loop (ray, color, light, rng) = (init_ray, vec 1 1 1, vec 0 0 0, rng) for _i < num_bounces do
-        let hits = map (check_sphere ray) spheres in
-        let i = hits |> imin (.dist) in
-        if i == -1 then ({origin=vec 0 0 0, dir=vec 0 0 0}, vec 0 0 0, light, rng)
+        let hits = map (check_sphere ray) spheres
+        let hit = hits[imin (.dist) hits] in
+        if f32.isinf hit.dist then ({origin=vec 0 0 0, dir=vec 0 0 0}, vec 0 0 0, light, rng)
         else
-            let hit_point = hits[i].point
-            let hit_normal = hits[i].normal
-
             -- choose random offset for diffuse reflection
-            let (rng, bounce_dir) = rand_sphere_point rng |> (\(rng', dir) -> (rng', (dot dir hit_normal |> f32.sgn) <*> dir)) in
-            let emit_light = spheres[i].material.emission_strength <*> spheres[i].material.emission in
+            let (rng, bounce_dir) = rand_sphere_point rng |> (\(rng', dir) -> (rng', (dot dir hit.normal |> f32.sgn) *> dir))
+            let emit_light = hit.material.emission_strength *> hit.material.emission
 
-            let light_strength = dot hit_normal bounce_dir in
+            let light_strength = dot hit.normal bounce_dir in
 
-            ({origin=hit_point, dir=bounce_dir},
-             {
-                 x = spheres[i].material.color.x * color.x * light_strength,
-                 y = spheres[i].material.color.y * color.y * light_strength,
-                 z = spheres[i].material.color.z * color.z * light_strength
-             },
-             {
-                 x = light.x + emit_light.x * color.x,
-                 y = light.y + emit_light.y * color.y,
-                 z = light.z + emit_light.z * color.z
-             },
+            ({origin=hit.point, dir=bounce_dir},
+             light_strength *> hit.material.color <*> color,
+             light <+> (emit_light <*> color),
              rng) in
     final_light
 
