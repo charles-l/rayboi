@@ -19,6 +19,7 @@ def toarr (a: Vec) = [a.x, a.y, a.z]
 def f32toarr(f: f32) = [f, f, f]
 
 def vec a b c = {x=a, y=b, z=c}
+def tovec (t: [3]f32) = vec t[0] t[1] t[2]
 def (a: Vec) <+> (b: Vec): Vec = vec (a.x + b.x) (a.y + b.y) (a.z + b.z)
 def (a: Vec) <-> (b: Vec): Vec = vec (a.x - b.x) (a.y - b.y) (a.z - b.z)
 def (a: Vec) <*> (b: Vec): Vec = vec (a.x * b.x) (a.y * b.y) (a.z * b.z)
@@ -138,20 +139,17 @@ def trace_rays [n] rng (rays: [n]Ray) prims =
     let rngs = randfloat.engine.split_rng (samples_per_ray * n) rng |> unflatten n samples_per_ray in
     tabulate n (\i -> (map (\rng -> trace_ray rng rays[i] prims) rngs[i]) |> vecavg |> toarr)
 
-def render (seed, prims): [height][width][3]f32 =
+def render seed prims: [height][width][3]f32 =
     let xs = (map (\x -> (2*(x+0.5) / (f32.i64 width) - 1) * f32.tan(fov/2) * (f32.i64 width)/(f32.i64 height)) (map f32.i64 (iota width))) in
     let ys = (map (\y -> (2*(y+0.5) / (f32.i64 height) - 1) * f32.tan(fov/2)) (map f32.i64 (iota height))) in
     let rays = (map (\y -> map3 (\x y z -> {origin = vec 0 0 0, dir = vec x y z |> normalize}) xs (replicate width y) (replicate width (-1.0))) ys |> flatten) in
     let rng = minstd_rand.rng_from_seed [seed] in
     trace_rays rng rays prims |> unflatten height width
 
-def main (seed: i32): [height][width][3]f32 = (render(seed, [
-    #sphere {pos = {x = -12, y = 0, z = -16}, radius = 10, material = {color = {x=1, y=1, z=1}, emission = {x=1, y=1, z=1}, emission_strength=10}},
-    #sphere {pos = {x = 0, y = 0, z = -14}, radius = 1, material = {color = {x=1, y=0, z=1}, emission = {x=0, y=0, z=0}, emission_strength=0}},
-    #sphere {pos = {x = 5, y = 0, z = -14}, radius = 2, material = {color = {x=1, y=0, z=0}, emission = {x=0, y=0, z=0}, emission_strength=0}},
-    #triangle {vertices = [
-        {x = -1, y = 1, z = -14},
-        {x = 1, y = 1, z = -14},
-        {x = 0, y = -1, z = -14}
-        ], material = {color = {x=1, y=0, z=0}, emission = {x=0, y=0, z=0}, emission_strength=0}}
-    ]))
+def main (seed: i32) (triangles: [][3][3]f32): [height][width][3]f32 =
+    let prims = (concat [
+#sphere {pos = {x = -12, y = 0, z = -16}, radius = 10, material = {color = {x=1, y=1, z=1}, emission = {x=1, y=1, z=1}, emission_strength=10}},
+#sphere {pos = {x = 0, y = 0, z = -14}, radius = 1, material = {color = {x=1, y=0, z=1}, emission = {x=0, y=0, z=0}, emission_strength=0}},
+#sphere {pos = {x = 5, y = 0, z = -14}, radius = 2, material = {color = {x=1, y=0, z=0}, emission = {x=0, y=0, z=0}, emission_strength=0}}
+    ] (map (\t -> #triangle {vertices=(map tovec t), material={color = {x=1, y=0, z=0}, emission = {x=0, y=0, z=0}, emission_strength=0}}) triangles)) in
+    render seed prims

@@ -11,6 +11,29 @@ rayboi = None
 
 cam_orig = [0, 0, 0]
 
+def parse_obj(filename):
+    objs = {}
+    verts = []
+    curobject = None
+    with open(filename, 'r') as f:
+        while (line := f.readline()):
+            tag, *rest = line.strip().split(' ')
+            if tag == '#':
+                # comment
+                pass
+            elif tag == 'o':
+                curobject = rest[0]
+                objs[curobject] = []
+                verts = []
+            elif tag == 'v':
+                verts.append([float(x) for x in rest])
+            elif tag == 'f':
+                ixs = [int(x) - 1 for x in rest]
+                objs[curobject].append([verts[ixs[0]], verts[ixs[1]], verts[ixs[2]]])
+            else:
+                print('skipping unknown tag', tag)
+    return objs
+
 def reload_and_render():
     global rayboi
     try:
@@ -45,6 +68,9 @@ log.document.styles['color'] = (255, 0, 255, 255)
 def printlog(msg):
     log.document.text += msg + '\n'
 
+icosphere = np.array(parse_obj('icosphere.obj')['Icosphere']).astype(np.float32)
+icosphere[:, :, 2] -= 10
+
 fb = None
 i = 1
 while True:
@@ -62,7 +88,7 @@ while True:
 
     if rayboi is not None:
         print('start render...')
-        newfb = rayboi.main(i).get().clip(0, 1)
+        newfb = rayboi.main(i, icosphere).get().clip(0, 1)
         if fb is None:
             fb = newfb
         else:
