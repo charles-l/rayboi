@@ -1,6 +1,5 @@
 import pyglet
 import numpy as np
-import pyinotify # type: ignore
 import importlib
 import time
 import os
@@ -33,10 +32,14 @@ window.push_handlers(key_handler)
 fb = None
 i = 1
 while True:
+    if key_handler[pyglet.window.key.ESCAPE]:
+        break
+
     window.switch_to()
     pyglet.clock.tick()
     window.dispatch_events()
     window.clear()
+
     if rayboi is not None:
         print('start render...')
         newfb = rayboi.main(i).get().clip(0, 1)
@@ -54,4 +57,4 @@ while True:
     window.flip()
     i += 1
 
-pyglet.app.run()
+window.close()
