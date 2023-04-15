@@ -10,9 +10,10 @@ type Vec = {x: f32, y: f32, z: f32}
 type Ray = {origin: Vec, dir: Vec}
 type Material = { color: Vec, emission: Vec, emission_strength: f32 }
 type Sphere = { pos: Vec, radius: f32, material: Material }
-type Triangle = [3]Vec
+type Triangle = { vertices: [3]Vec, material: Material }
 type Primitive = #sphere Sphere | #triangle Triangle
 type HitInfo = { dist:f32, point: Vec, normal: Vec, material: Material }
+type BoundingBox = { min: Vec, max: Vec }
 
 def toarr (a: Vec) = [a.x, a.y, a.z]
 def f32toarr(f: f32) = [f, f, f]
@@ -33,8 +34,22 @@ def normalize(a: Vec): Vec = (1 / (dot a a |> f32.sqrt)) *> a
 def vecavg vs = (1/(length vs |> f32.i64)) *> (reduce (<+>) (vec 0 0 0) vs)
 def epsilon: f32 = 0.00001
 
-def ray_triangle (ray: Ray) (t: Triangle) =
-    let (t0, t1, t2) = (t[0], t[1], t[2])
+def get_bb (prim: Primitive): BoundingBox =
+    match prim
+    case #sphere {pos, radius, material=_} -> { min = pos <-> (vec radius radius radius), max = pos <+> (vec radius radius radius) }
+    case #triangle {vertices=v, material=_} -> { min = {
+                            x = f32.minimum [v[0].x, v[1].x, v[2].x],
+                            y = f32.minimum [v[0].y, v[1].y, v[2].y],
+                            z = f32.minimum [v[0].z, v[1].z, v[2].z]
+                          },
+                          max = {
+                            x = f32.maximum [v[0].x, v[1].x, v[2].x],
+                            y = f32.maximum [v[0].y, v[1].y, v[2].y],
+                            z = f32.maximum [v[0].z, v[1].z, v[2].z]
+                          }}
+
+def ray_triangle (ray: Ray) (tri: Triangle) =
+    let (t0, t1, t2) = (tri.vertices[0], tri.vertices[1], tri.vertices[2])
     let edge1 = t1 <-> t0
     let edge2 = t2 <-> t0
     let h = cross ray.dir edge2
@@ -50,6 +65,9 @@ def ray_triangle (ray: Ray) (t: Triangle) =
     let t = f * dot edge2 q in
     if t > epsilon then t else f32.inf
 
+def triangle_normal (t: Triangle) =
+    cross (t.vertices[1] <-> t.vertices[0]) (t.vertices[2] <-> t.vertices[0])
+
 module randfloat = uniform_real_distribution f32 minstd_rand
 
 def rand_sphere_point rng =
@@ -63,6 +81,16 @@ def imin [n] 't (f: t -> f32) (arr: [n]t): i64 =
     let (i, _) = reduce (\(ai, ax) (i, x) -> (if x < ax then (i, x) else (ai, ax)))
         (0, f32.inf) (zip (iota n) (map f arr)) in
     i
+
+def check_triangle (ray: Ray) (tri: Triangle): HitInfo =
+    let t = ray_triangle ray tri in
+    -- NOTE: t is f32.inf if it doesn't intersect
+    {
+        dist = t,
+        point = ray.origin <+> (t *> ray.dir),
+        normal = triangle_normal tri,
+        material = tri.material
+    }
 
 def check_sphere (ray: Ray) ({pos, radius, material}: Sphere): HitInfo =
     let ray_origin = ray.origin <-> pos in
@@ -86,9 +114,11 @@ def check_sphere (ray: Ray) ({pos, radius, material}: Sphere): HitInfo =
         material = material
     }
 
-def trace_ray rng (init_ray: Ray) (spheres: []Sphere) =
+def trace_ray rng (init_ray: Ray) (prims: []Primitive) =
     let (_, _, final_light, _) = loop (ray, color, light, rng) = (init_ray, vec 1 1 1, vec 0 0 0, rng) for _i < num_bounces do
-        let hits = map (check_sphere ray) spheres
+        let hits = map (\p -> match p
+                              case #sphere s -> check_sphere ray s
+                              case #triangle t -> check_triangle ray t) prims
         let hit = hits[imin (.dist) hits] in
         if f32.isinf hit.dist then ({origin=vec 0 0 0, dir=vec 0 0 0}, vec 0 0 0, light, rng)
         else
@@ -104,19 +134,24 @@ def trace_ray rng (init_ray: Ray) (spheres: []Sphere) =
              rng) in
     final_light
 
-def trace_rays [n] rng (rays: [n]Ray) spheres =
+def trace_rays [n] rng (rays: [n]Ray) prims =
     let rngs = randfloat.engine.split_rng (samples_per_ray * n) rng |> unflatten n samples_per_ray in
-    tabulate n (\i -> (map (\rng -> trace_ray rng rays[i] spheres) rngs[i]) |> vecavg |> toarr)
+    tabulate n (\i -> (map (\rng -> trace_ray rng rays[i] prims) rngs[i]) |> vecavg |> toarr)
 
-def render (seed, spheres: []Sphere): [height][width][3]f32 =
+def render (seed, prims): [height][width][3]f32 =
     let xs = (map (\x -> (2*(x+0.5) / (f32.i64 width) - 1) * f32.tan(fov/2) * (f32.i64 width)/(f32.i64 height)) (map f32.i64 (iota width))) in
     let ys = (map (\y -> (2*(y+0.5) / (f32.i64 height) - 1) * f32.tan(fov/2)) (map f32.i64 (iota height))) in
     let rays = (map (\y -> map3 (\x y z -> {origin = vec 0 0 0, dir = vec x y z |> normalize}) xs (replicate width y) (replicate width (-1.0))) ys |> flatten) in
     let rng = minstd_rand.rng_from_seed [seed] in
-    trace_rays rng rays spheres |> unflatten height width
+    trace_rays rng rays prims |> unflatten height width
 
 def main (seed: i32): [height][width][3]f32 = (render(seed, [
-    {pos = {x = -12, y = 0, z = -16}, radius = 10, material = {color = {x=1, y=1, z=1}, emission = {x=1, y=1, z=1}, emission_strength=10}},
-    {pos = {x = 0, y = 0, z = -14}, radius = 1, material = {color = {x=1, y=0, z=1}, emission = {x=0, y=0, z=0}, emission_strength=0}},
-    {pos = {x = 5, y = 0, z = -14}, radius = 2, material = {color = {x=1, y=0, z=0}, emission = {x=0, y=0, z=0}, emission_strength=0}}
+    #sphere {pos = {x = -12, y = 0, z = -16}, radius = 10, material = {color = {x=1, y=1, z=1}, emission = {x=1, y=1, z=1}, emission_strength=10}},
+    #sphere {pos = {x = 0, y = 0, z = -14}, radius = 1, material = {color = {x=1, y=0, z=1}, emission = {x=0, y=0, z=0}, emission_strength=0}},
+    #sphere {pos = {x = 5, y = 0, z = -14}, radius = 2, material = {color = {x=1, y=0, z=0}, emission = {x=0, y=0, z=0}, emission_strength=0}},
+    #triangle {vertices = [
+        {x = -1, y = 1, z = -14},
+        {x = 1, y = 1, z = -14},
+        {x = 0, y = -1, z = -14}
+        ], material = {color = {x=1, y=0, z=0}, emission = {x=0, y=0, z=0}, emission_strength=0}}
     ]))
