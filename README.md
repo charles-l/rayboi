@@ -1,18 +1,15 @@
 # rayboi
 
-A meh raytracer implemented in Python.
+A raytracer/pathtracer implemented in Futhark (and a bit of Python).
 
-![output of the renderer in all its raytraced glory](render.png)
+![render example](render.png)
 
-The performance is most certainly not where I want it to be. I have a feeling
-I can get significantly better performance with a bit of tuning of the numpy
-functions I used.
+A lot of the code is [based off of Sabastian Lague's very helpful video](https://www.youtube.com/watch?v=Qz0KTGYJtUk)
 
 Future improvements/projects:
 
 * Model loading
 * Texture mapping
-* Spatial partitioning (e.g. kdtree or [BVH](https://raytracing.github.io/books/RayTracingTheNextWeek.html))
+* Spatial partitioning with [BVH](https://raytracing.github.io/books/RayTracingTheNextWeek.html)
 * [PBRT](http://www.pbr-book.org/3ed-2018/contents.html)
-* Raytrace on the GPU? Maybe with [Futhark](https://futhark-lang.org/)
-  [Python bindings](https://futhark-lang.org/blog/2016-04-15-futhark-and-pyopencl.html)?
+* ReSTIR ([ref](https://www.youtube.com/watch?v=gsZiJeaMO48))
