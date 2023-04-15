@@ -28,12 +28,32 @@ reload_and_render()
 window = pyglet.window.Window(width=800, height=600)
 key_handler = pyglet.window.key.KeyStateHandler()
 window.push_handlers(key_handler)
+label = pyglet.text.Label('Iteration count...',
+                          color=(0, 255, 0, 255),
+                          font_size=12,
+                          x=10, y=10,
+                          anchor_x='left', anchor_y='bottom')
+
+log = pyglet.text.layout.ScrollableTextLayout(pyglet.text.document.UnformattedDocument(''),
+        width=400, height=200,
+        multiline=True)
+log.x = 0
+log.y = 600
+log.anchor_y = "top"
+log.document.styles['color'] = (255, 0, 255, 255)
+
+def printlog(msg):
+    log.document.text += msg + '\n'
 
 fb = None
 i = 1
 while True:
     if key_handler[pyglet.window.key.ESCAPE]:
         break
+
+    if key_handler[pyglet.window.key.S]:
+        img.save(f'render-{i}.png')
+        printlog(f'saved image render-{i}.png')
 
     window.switch_to()
     pyglet.clock.tick()
@@ -52,9 +72,15 @@ while True:
     if img is not None:
         img.blit(0, 0)
 
+
+    log.view_y = -log.content_height
+    log.draw()
+    label.draw()
     time.sleep(0.05)
 
     window.flip()
     i += 1
+    label.text = f'Iteration {i}'
+
 
 window.close()
